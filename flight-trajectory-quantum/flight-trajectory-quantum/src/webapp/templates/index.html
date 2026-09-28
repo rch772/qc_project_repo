@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Quantum Flight Trajectory Optimization</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --border: #2a2e38; --text: #e6e8ec;
+    --muted: #9aa1ad; --accent: #4f8cff; --accent2: #ff9f40; --good: #4caf50; --bad: #e05555;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 14px;
+  }
+  header {
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 12px;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header span { color: var(--muted); font-size: 13px; }
+  .layout { display: grid; grid-template-columns: 340px 1fr; gap: 0; min-height: calc(100vh - 57px); }
+  .sidebar { border-right: 1px solid var(--border); padding: 20px; overflow-y: auto; }
+  .main { padding: 20px; overflow-y: auto; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 12px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-top: 10px; margin-bottom: 3px; }
+  input, select {
+    width: 100%; padding: 6px 8px; background: #0c0e12; border: 1px solid var(--border);
+    color: var(--text); border-radius: 5px; font-size: 13px;
+  }
+  .row { display: flex; gap: 8px; }
+  .row > div { flex: 1; }
+  button {
+    width: 100%; margin-top: 14px; padding: 10px; border: none; border-radius: 6px;
+    background: var(--accent); color: white; font-weight: 600; cursor: pointer; font-size: 13px;
+  }
+  button.secondary { background: var(--accent2); }
+  button:disabled { background: #3a3f4b; cursor: not-allowed; color: var(--muted); }
+  button:hover:not(:disabled) { filter: brightness(1.1); }
+  img.plot { width: 100%; border-radius: 8px; border: 1px solid var(--border); background: #fff; }
+  .placeholder {
+    height: 300px; display: flex; align-items: center; justify-content: center;
+    color: var(--muted); border: 1px dashed var(--border); border-radius: 8px;
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td { padding: 5px 0; border-bottom: 1px solid var(--border); }
+  td.k { color: var(--muted); width: 55%; }
+  .route { font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+  .badge.pass { background: rgba(76,175,80,.15); color: var(--good); }
+  .badge.fail { background: rgba(224,85,85,.15); color: var(--bad); }
+  .note {
+    font-size: 12px; color: var(--muted); border-left: 3px solid var(--accent); padding: 8px 12px;
+    background: rgba(79,140,255,.08); border-radius: 0 6px 6px 0; margin-top: 10px;
+  }
+  .err { color: var(--bad); font-size: 13px; margin-top: 8px; }
+  .spinner {
+    display: none; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3);
+    border-top-color: white; border-radius: 50%; animation: spin .7s linear infinite;
+    margin: 0 auto;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Quantum Flight Trajectory Optimization</h1>
+  <span>Research dashboard — classical vs. QAOA on a simulator</span>
+</header>
+
+<div class="layout">
+  <div class="sidebar">
+
+    <div class="panel">
+      <h2>1. Scenario</h2>
+      <div class="row">
+        <div><label>Nodes</label><input id="num_nodes" type="number" value="5" min="2" max="20"></div>
+        <div><label>Seed</label><input id="seed" type="number" value="42"></div>
+      </div>
+      <div class="row">
+        <div><label>k-nearest</label><input id="k_nearest" type="number" value="2" min="1" max="5"></div>
+        <div><label>Extra edges</label><input id="extra_edge_fraction" type="number" value="0.1" step="0.05" min="0" max="1"></div>
+      </div>
+      <div class="row">
+        <div><label>Restricted frac.</label><input id="restricted_fraction" type="number" value="0.08" step="0.05" min="0" max="0.9"></div>
+        <div><label>Weather frac.</label><input id="weather_fraction" type="number" value="0.15" step="0.05" min="0" max="1"></div>
+      </div>
+      <button id="btn-scenario" onclick="generateScenario()">Generate scenario</button>
+      <div id="scenario-err" class="err"></div>
+      <div id="scenario-note" class="note" style="display:none"></div>
+    </div>
+
+    <div class="panel">
+      <h2>2. Objective weights</h2>
+      <div class="row">
+        <div><label>&alpha; distance</label><input id="alpha" type="number" value="1.0" step="0.1" min="0"></div>
+        <div><label>&beta; fuel</label><input id="beta" type="number" value="1.0" step="0.1" min="0"></div>
+      </div>
+      <div class="row">
+        <div><label>&gamma; time</label><input id="gamma" type="number" value="1.0" step="0.1" min="0"></div>
+        <div><label>&delta; weather</label><input id="delta" type="number" value="1.0" step="0.1" min="0"></div>
+      </div>
+      <label style="display:flex; align-items:center; gap:6px; margin-top:12px;">
+        <input id="normalize" type="checkbox" checked style="width:auto;"> Normalize components
+      </label>
+    </div>
+
+    <div class="panel">
+      <h2>3. QAOA (quantum simulator)</h2>
+      <div class="row">
+        <div><label>Reps (depth)</label><input id="reps" type="number" value="3" min="1" max="6"></div>
+        <div><label>Shots</label><input id="shots" type="number" value="4096" min="256"></div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Optimizer</label>
+          <select id="optimizer">
+            <option>COBYLA</option>
+            <option>Nelder-Mead</option>
+            <option>Powell</option>
+          </select>
+        </div>
+        <div><label>Max iterations</label><input id="max_iter" type="number" value="150" min="1"></div>
+      </div>
+      <div class="row">
+        <div><label>Max qubits (safety cap)</label><input id="max_qubits" type="number" value="24" min="4"></div>
+      </div>
+      <button id="btn-run" class="secondary" onclick="runOptimization()" disabled>Run optimization</button>
+      <div id="run-err" class="err"></div>
+      <div class="note">Qubits = directed edges in the network. Training time grows fast with qubit count — keep node count and k-nearest small for a quick result.</div>
+    </div>
+
+  </div>
+
+  <div class="main">
+    <div class="grid2">
+      <div class="panel">
+        <h2>Network</h2>
+        <div id="network-plot-wrap" class="placeholder">Generate a scenario to see the network</div>
+      </div>
+      <div class="panel">
+        <h2>Classical vs. Quantum route</h2>
+        <div id="routes-plot-wrap" class="placeholder">Run the optimization to compare routes</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Results <span class="spinner" id="spinner"></span></h2>
+      <div id="results">
+        <div class="placeholder" style="height:120px;">No results yet</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let scenarioReady = false;
+let currentScenario = null;
+
+async function generateScenario() {
+  const err = document.getElementById('scenario-err');
+  const note = document.getElementById('scenario-note');
+  err.textContent = '';
+  note.style.display = 'none';
+  document.getElementById('btn-scenario').disabled = true;
+  try {
+    const body = {
+      num_nodes: parseInt(document.getElementById('num_nodes').value),
+      seed: parseInt(document.getElementById('seed').value),
+      k_nearest: parseInt(document.getElementById('k_nearest').value),
+      extra_edge_fraction: parseFloat(document.getElementById('extra_edge_fraction').value),
+      restricted_fraction: parseFloat(document.getElementById('restricted_fraction').value),
+      weather_fraction: parseFloat(document.getElementById('weather_fraction').value),
+    };
+    const res = await fetch('/api/scenario', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json();
+    if (!res.ok) { err.textContent = data.error || 'Failed to generate scenario.'; return; }
+
+    currentScenario = data.scenario;
+    const networkPlotUrl = new URL('/api/plot/network', window.location.origin);
+    networkPlotUrl.searchParams.set('scenario', JSON.stringify(currentScenario));
+    document.getElementById('network-plot-wrap').innerHTML =
+      `<img class="plot" src="${networkPlotUrl}">`;
+
+    note.style.display = 'block';
+    note.textContent = `${data.num_nodes} nodes, ${data.num_edges} directed edges ` +
+      `(${data.estimated_qubits} qubits if run through QAOA). Origin: ${data.origin_name}, ` +
+      `Destination: ${data.destination_name}. ` +
+      (data.brute_force_feasible ? 'Brute-force ground truth will run.' : 'Too large for brute force — classical result used as reference.');
+
+    scenarioReady = true;
+    document.getElementById('btn-run').disabled = false;
+    document.getElementById('routes-plot-wrap').innerHTML = '<div class="placeholder">Run the optimization to compare routes</div>';
+    document.getElementById('results').innerHTML = '<div class="placeholder" style="height:120px;">No results yet</div>';
+  } catch (e) {
+    err.textContent = 'Request failed: ' + e;
+  } finally {
+    document.getElementById('btn-scenario').disabled = false;
+  }
+}
+
+function fmt(x, digits=4) {
+  if (x === null || x === undefined) return '—';
+  if (!isFinite(x)) return '∞';
+  return Number(x).toFixed(digits);
+}
+
+function pct(x, digits=2) {
+  if (x === null || x === undefined) return '—';
+  if (!isFinite(x)) return '∞';
+  return (Number(x) * 100).toFixed(digits) + '%';
+}
+
+async function runOptimization() {
+  const err = document.getElementById('run-err');
+  err.textContent = '';
+  document.getElementById('btn-run').disabled = true;
+  document.getElementById('spinner').style.display = 'inline-block';
+  try {
+    const body = {
+      scenario: currentScenario,
+      weights: {
+        alpha: parseFloat(document.getElementById('alpha').value),
+        beta: parseFloat(document.getElementById('beta').value),
+        gamma: parseFloat(document.getElementById('gamma').value),
+        delta: parseFloat(document.getElementById('delta').value),
+        normalize_components: document.getElementById('normalize').checked,
+      },
+      qaoa: {
+        reps: parseInt(document.getElementById('reps').value),
+        shots: parseInt(document.getElementById('shots').value),
+        optimizer: document.getElementById('optimizer').value,
+        max_iter: parseInt(document.getElementById('max_iter').value),
+        max_qubits: parseInt(document.getElementById('max_qubits').value),
+      },
+    };
+    const res = await fetch('/api/run', {method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    const data = await res.json();
+    if (!res.ok) { err.textContent = data.error || 'Optimization failed.'; return; }
+    renderResults(data);
+    const routesPlotUrl = new URL('/api/plot/routes', window.location.origin);
+    routesPlotUrl.searchParams.set('scenario', JSON.stringify(currentScenario));
+    routesPlotUrl.searchParams.set('classical_path', JSON.stringify(data.classical.path));
+    if (data.quantum.path) routesPlotUrl.searchParams.set('quantum_path', JSON.stringify(data.quantum.path));
+    document.getElementById('routes-plot-wrap').innerHTML = `<img class="plot" src="${routesPlotUrl}">`;
+  } catch (e) {
+    err.textContent = 'Request failed: ' + e;
+  } finally {
+    document.getElementById('btn-run').disabled = false;
+    document.getElementById('spinner').style.display = 'none';
+  }
+}
+
+function renderResults(data) {
+  const bf = data.brute_force;
+  const cl = data.classical;
+  const q = data.quantum;
+  const cmp = data.comparison;
+
+  let bfRow = bf.ran
+    ? `<tr><td class="k">Brute force (${bf.paths_examined} paths)</td><td class="route">${bf.route.join(' → ')}<br>cost ${fmt(bf.cost)}</td></tr>`
+    : `<tr><td class="k">Brute force</td><td>${bf.reason}</td></tr>`;
+
+  let crossRow = '';
+  if (data.cross_validation) {
+    const cls = data.cross_validation === 'PASS' ? 'pass' : 'fail';
+    crossRow = `<tr><td class="k">Brute force == classical</td><td><span class="badge ${cls}">${data.cross_validation}</span></td></tr>`;
+  }
+
+  let quantumRow;
+  if (q.status === 'ok') {
+    quantumRow = `<tr><td class="k">Quantum (QAOA) route</td><td class="route">${q.route.join(' → ')}<br>cost ${fmt(q.cost)} (p=${fmt(q.probability,4)})</td></tr>`;
+  } else if (q.status === 'no_valid_path') {
+    quantumRow = `<tr><td class="k">Quantum (QAOA) route</td><td>No valid path decoded.` +
+      (q.top_measurement_error ? `<br><span style="color:var(--muted)">Most likely outcome invalid: ${q.top_measurement_error}</span>` : '') + `</td></tr>`;
+  } else {
+    quantumRow = `<tr><td class="k">Quantum (QAOA)</td><td style="color:var(--bad)">${q.error_message}</td></tr>`;
+  }
+
+  let successRow = (q.status !== 'infeasible')
+    ? `<tr><td class="k">Success probability (any valid path)</td><td>${pct(q.success_probability)}</td></tr>`
+    : '';
+
+  let timingRow = (q.timing)
+    ? `<tr><td class="k">QAOA timing</td><td>build ${fmt(q.timing.circuit_build_seconds,2)}s · train ${fmt(q.timing.training_seconds,2)}s · sample ${fmt(q.timing.sampling_seconds,2)}s</td></tr>`
+    : '';
+
+  document.getElementById('results').innerHTML = `
+    <table>
+      ${bfRow}
+      <tr><td class="k">Classical (Dijkstra) route</td><td class="route">${cl.route.join(' → ')}<br>cost ${fmt(cl.cost)}</td></tr>
+      ${crossRow}
+      <tr><td class="k">QUBO size</td><td>${cmp.qubits} qubits</td></tr>
+      ${quantumRow}
+      ${successRow}
+      ${timingRow}
+      <tr><td class="k">Optimality gap</td><td>${pct(cmp.optimality_gap)}</td></tr>
+      <tr><td class="k">Approximation ratio</td><td>${fmt(cmp.approximation_ratio)}</td></tr>
+    </table>
+    <div class="note">Small noiseless-simulator benchmark — not a demonstration of quantum advantage.</div>
+  `;
+}
+</script>
+</body>
+</html>

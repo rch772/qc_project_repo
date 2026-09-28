@@ -1,0 +1,14 @@
+[project]
+name = "flight-trajectory-quantum"
+version = "0.1.0"
+description = "Quantum Computing Applications for Flight Trajectory Optimization (course project)"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.setuptools]
+packages = ["src"]
